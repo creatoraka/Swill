@@ -6,8 +6,7 @@ import asyncio
 import os
 import logging
 import datetime
-from aiogram import Bot, Dispatcher, types
-from aiogram.filters import Command
+from aiogram import Bot, Dispatcher, types, F
 
 # ============ ТОКЕН ИЗ СЕКРЕТНОЙ ПЕРЕМЕННОЙ ============
 BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
@@ -82,31 +81,39 @@ bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
 
-@dp.message(Command("swill"))
+# ============ ОБРАБОТЧИК !swill ============
+@dp.message(F.text.startswith("!swill"))
 async def cmd_swill(message: types.Message):
     chat_id = message.chat.id
-    args = message.text.split(maxsplit=1)
-    payload = args[1].strip().lower() if len(args) > 1 else ""
+    full_text = message.text.strip()
 
-    if not payload:
+    # "!swill" без аргументов — активация
+    if full_text == "!swill":
         active_sessions[chat_id] = True
         await message.answer("[SWILL]: Activated.")
         return
 
+    # Извлекаем аргумент после "!swill "
+    payload = full_text[7:].strip().lower() if len(full_text) > 7 else ""
+
+    # Деактивация
     if payload == "стоп":
         active_sessions[chat_id] = False
         await message.answer("[SWILL]: Deactivated.")
         return
 
+    # Проверка активности
     if not active_sessions.get(chat_id, False):
         await message.answer("[SWILL]: Не активирован. Введи !swill")
         return
 
+    # Динамическая команда "время"
     if payload == "время":
         now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         await message.answer(f"[SWILL]: {now}")
         return
 
+    # Команды из словаря
     if payload in SWILL_COMMANDS:
         await message.answer(f"[SWILL]: {SWILL_COMMANDS[payload]}")
     else:
@@ -115,18 +122,22 @@ async def cmd_swill(message: types.Message):
         )
 
 
-@dp.message()
+# ============ ПЕРЕХВАТ АКТИВНОЙ СЕССИИ ============
+@dp.message(F.text)
 async def swill_listener(message: types.Message):
     chat_id = message.chat.id
+
     if not active_sessions.get(chat_id, False):
         return
-    if not message.text:
+    if message.text.startswith("!swill"):
         return
-    if message.text.startswith(("/", "!")):
+    if message.text.startswith("/"):
         return
+
     await message.answer(f"[SWILL]: Принято → {message.text}")
 
 
+# ============ ЗАПУСК ============
 async def main():
     print("SWILL-бот запущен.")
     await dp.start_polling(bot)
