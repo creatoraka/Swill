@@ -1,5 +1,5 @@
 # bot.py
-# Telegram-бот SWILL + OpenRouter через встроенный urllib
+# Telegram-бот SWILL + DeepSeek API
 # requirements.txt: aiogram>=3.0
 
 import asyncio
@@ -13,15 +13,15 @@ from collections import defaultdict, deque
 from aiogram import Bot, Dispatcher, types, F
 
 # ============ ПЕРЕМЕННЫЕ ============
-BOT_TOKEN    = os.environ.get("TELEGRAM_BOT_TOKEN")
-LLM_API_KEY  = os.environ.get("LLM_API_KEY")
-LLM_BASE_URL = os.environ.get("LLM_BASE_URL", "https://openrouter.ai/api/v1")
-LLM_MODEL    = os.environ.get("LLM_MODEL", "meta-llama/llama-3.1-8b-instruct:free")
+BOT_TOKEN      = os.environ.get("TELEGRAM_BOT_TOKEN")
+DEEPSEEK_KEY   = os.environ.get("LLM_API_KEY")
+DEEPSEEK_URL   = os.environ.get("LLM_BASE_URL", "https://api.deepseek.com")
+DEEPSEEK_MODEL = os.environ.get("LLM_MODEL", "deepseek-flash")
 
 if not BOT_TOKEN:
     raise ValueError("TELEGRAM_BOT_TOKEN не установлен")
-if not LLM_API_KEY:
-    raise ValueError("LLM_API_KEY не установлен (ключ OpenRouter)")
+if not DEEPSEEK_KEY:
+    raise ValueError("LLM_API_KEY не установлен (ключ DeepSeek, sk-...)")
 
 # ============ СИСТЕМНЫЙ ПРОМПТ ============
 SWILL_SYSTEM_PROMPT = """
@@ -49,22 +49,22 @@ def parse_swill(text: str):
     return True, text[m.end():].strip()
 
 
-# ============ ВЫЗОВ OpenRouter через urllib (без httpx) ============
-def call_llm_sync(messages: list) -> str:
+# ============ ВЫЗОВ DeepSeek ============
+def call_deepseek_sync(messages: list) -> str:
+    url = f"{DEEPSEEK_URL}/v1/chat/completions"
+
     body = json.dumps({
-        "model": LLM_MODEL,
+        "model": DEEPSEEK_MODEL,
         "messages": messages,
         "temperature": 0.7,
     }).encode("utf-8")
 
     req = urllib.request.Request(
-        f"{LLM_BASE_URL}/chat/completions",
+        url,
         data=body,
         headers={
-            "Authorization": f"Bearer {LLM_API_KEY}",
+            "Authorization": f"Bearer {DEEPSEEK_KEY}",
             "Content-Type": "application/json",
-            "HTTP-Referer": "https://t.me",
-            "X-Title": "SWILL Bot",
         },
         method="POST",
     )
@@ -75,17 +75,17 @@ def call_llm_sync(messages: list) -> str:
             return data["choices"][0]["message"]["content"].strip()
     except urllib.error.HTTPError as e:
         err_body = e.read().decode("utf-8", errors="ignore")[:300]
-        return f"[SWILL]: OpenRouter HTTP {e.code} → {err_body}"
+        return f"[SWILL]: DeepSeek HTTP {e.code} → {err_body}"
     except Exception as e:
         return f"[SWILL]: Ошибка LLM → {e}"
 
 
-async def ask_llm(chat_id: int, user_text: str) -> str:
+async def ask_deepseek(chat_id: int, user_text: str) -> str:
     hist = history[chat_id]
     hist.append({"role": "user", "content": user_text})
     messages = [{"role": "system", "content": SWILL_SYSTEM_PROMPT}] + list(hist)
     loop = asyncio.get_event_loop()
-    answer = await loop.run_in_executor(None, call_llm_sync, messages)
+    answer = await loop.run_in_executor(None, call_deepseek_sync, messages)
     hist.append({"role": "assistant", "content": answer})
     return answer
 
@@ -101,7 +101,7 @@ async def swill_router(message: types.Message):
         if not active_sessions.get(chat_id, False):
             return
         await bot.send_chat_action(chat_id, "typing")
-        answer = await ask_llm(chat_id, text)
+        answer = await ask_deepseek(chat_id, text)
         await message.answer(answer)
         return
 
@@ -124,13 +124,13 @@ async def swill_router(message: types.Message):
 
     active_sessions[chat_id] = True
     await bot.send_chat_action(chat_id, "typing")
-    answer = await ask_llm(chat_id, payload)
+    answer = await ask_deepseek(chat_id, payload)
     await message.answer(answer)
 
 
 # ============ ЗАПУСК ============
 async def main():
-    print(f"SWILL запущен. Модель: {LLM_MODEL}")
+    print(f"SWILL запущен. Модель: {DEEPSEEK_MODEL}")
     await dp.start_polling(bot)
 
 
